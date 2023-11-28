@@ -5,128 +5,222 @@
 
 package frc.robot;
 
-import com.revrobotics.CANSparkMax;
-import com.revrobotics.CANSparkMaxLowLevel;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
+import edu.wpi.first.wpilibj2.command.WaitCommand;
+import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
+import frc.robot.subsystems.Arm;
+import frc.robot.subsystems.Drivetrain;
+import frc.robot.subsystems.Intake;
 
+import java.util.List;
 
+public class Robot extends TimedRobot {
+  private Arm arm;
+  private Drivetrain drive;
+  private Intake intake;
 
-/**
- * The VM is configured to automatically run this class, and to call the methods corresponding to
- * each mode, as described in the TimedRobot documentation. If you change the name of this class or
- * the package after creating this project, you must also update the build.gradle file in the
- * project.
- */
-public class Robot extends TimedRobot
-{
-    private Command autonomousCommand;
-    
-    private RobotContainer robotContainer;
+  CommandXboxController xb = new CommandXboxController(Constants.Ports.CONTROLLER);
+  // Joystick joyleft = new Joystick(Constants.Ports.JOYLEFT);
+  // Joystick joyright = new Joystick(Constants.Ports.JOYRIGHT);
 
-    CANSparkMax leftMotor = new CANSparkMax(9, CANSparkMaxLowLevel.MotorType.kBrushless);
-    
-    
-    /**
-     * This method is run when the robot is first started up and should be used for any
-     * initialization code.
-     */
-    @Override
-    public void robotInit()
-    {
-        // Instantiate our RobotContainer.  This will perform all our button bindings, and put our
-        // autonomous chooser on the dashboard.
-        robotContainer = new RobotContainer();
+  SendableChooser<Integer> autoChooser = new SendableChooser<>();
+
+  public Robot() {
+    super(Constants.Units.SECONDS_PER_LOOP);
+  }
+
+  @Override
+  public void robotInit() {
+    Constants.UpdateSettings();
+
+    this.arm = Arm.getInstance();
+    this.drive = Drivetrain.getInstance();
+    this.intake = Intake.getInstance();
+
+    xb.rightBumper().onTrue(this.intake.intakeCone()).onFalse(this.intake.holdCone());
+    xb.leftBumper().onTrue(this.intake.intakeCube()).onFalse(this.intake.holdCube());
+    xb.rightTrigger().onTrue(this.intake.throwItem()).onFalse(this.intake.off());
+
+    xb.y().onTrue(this.arm.setHighNode());
+    xb.a().onTrue(this.arm.setFloor());
+    xb.x().onTrue(this.arm.setStow());
+    xb.b().onTrue(this.arm.setMidNode());
+
+    // xb.start().onTrue(this.arm.setRadiansAndFinish(0.0).andThen(this.arm.setRadiansAndFinish(1.0)));
+
+    drive.setDefaultCommand(Commands.run(() -> {
+      drive.curvatureDrive(-xb.getLeftY(), -xb.getRightX(), xb.getLeftTriggerAxis() > 0.5);
+    }, drive));
+
+    this.addAutoChoice("Sequence", "High Cube & Balance", 4, true);
+    this.addAutoChoice("Sequence", "High Cube & Drive & Balance", 6);
+    this.addAutoChoice("Score", "High Cube", 1);
+    this.addAutoChoice("Score", "High Cube no move", 7);
+    this.addAutoChoice("Score", "Mid Cube", 0);
+    this.addAutoChoice("Balance", "Forward", 5);
+    this.addAutoChoice("Balance", "Backward", 2);
+    this.addAutoChoice("Test", "Test", 3);
+
+    SmartDashboard.putData(this.autoChooser);
+  }
+
+  @Override
+  public void robotPeriodic() {
+    CommandScheduler.getInstance().run();
+
+    SmartDashboard.putNumber("Time" /* with a capital T */, Timer.getFPGATimestamp());
+
+    this.drive.updateSlew();
+  }
+
+  @Override
+  public void autonomousInit() {
+    Constants.UpdateSettings();
+    CommandScheduler.getInstance().cancelAll();
+    switch (this.autoChooser.getSelected()) {
+      case 0:
+        // midCubeDriveAuto
+        new SequentialCommandGroup(
+            this.intake.holdCube().raceWith(new WaitCommand(0.1)),
+            this.arm.setRadians(Constants.Arm.Positions.MID_NODE),
+            new WaitCommand(2.0),
+            this.intake.throwItem().raceWith(new WaitCommand(1.0)),
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            new WaitCommand(2.0),
+            this.intake.off().raceWith(new WaitCommand(0.1)),
+            this.drive.crawlDistance(Constants.Auto.DRIVE_BACK_METERS, -Constants.Auto.DRIVE_MPS)).schedule();
+        break;
+
+      case 1:
+        // highCubeDriveAuto
+        new SequentialCommandGroup(
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            this.intake.off(),
+            this.drive.resetEncodersCommand(),
+
+            this.drive.crawlDistance(0.4, Constants.Auto.DRIVE_MPS / 4.0).alongWith(
+                this.intake.holdCube().raceWith(this.arm.setRadiansAndFinish(Constants.Arm.Positions.HIGH_NODE)))
+                .withTimeout(100),
+
+            this.intake.throwItem().withTimeout(0.25),
+            this.drive.resetEncodersCommand(),
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            new WaitCommand(0.9),
+            // this.arm.setRadiansAndFinish(Constants.Arm.Positions.STOW).withTimeout(2.0),
+            this.intake.off(),
+            // new WaitCommand(0.5),
+
+            this.drive.crawlDistance(Constants.Auto.DRIVE_BACK_METERS + 0.0, -Constants.Auto.DRIVE_MPS)).schedule();
+        break;
+
+      case 2:
+        // backwardBalanceAuto
+        new SequentialCommandGroup(
+            this.drive.crawlUntilTilt(Constants.Auto.B_BALANCE_DRIVE_MPS),
+            this.drive.crawlUntilLevel(Constants.Auto.B_LEVEL_MPS)).schedule();
+        ;
+        break;
+
+      case 3:
+        // trajectoryAuto
+        new SequentialCommandGroup(
+            this.drive.crawlUntilOverBackwards(-Constants.Auto.DRIVE_MPS)).schedule();
+        break;
+
+      case 4:
+        // highCubeBalanceAuto
+        new SequentialCommandGroup(
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            this.intake.off(),
+            this.drive.resetEncodersCommand(),
+            this.drive.crawlDistance(0.4, Constants.Auto.DRIVE_MPS / 4.0).withTimeout(2.0),
+            this.intake.holdCube().raceWith(this.arm.setRadiansAndFinish(Constants.Arm.Positions.HIGH_NODE)),
+            this.intake.throwItem().withTimeout(1.0),
+            this.arm.setRadiansAndFinish(Constants.Arm.Positions.STOW).withTimeout(2.0),
+            this.intake.off(),
+            new WaitCommand(0.5),
+            this.drive.resetEncodersCommand(),
+            this.drive.crawlUntilTilt(Constants.Auto.B_BALANCE_DRIVE_MPS),
+            this.drive.crawlUntilLevel(Constants.Auto.B_LEVEL_MPS)).schedule();
+        break;
+
+      case 5:
+        // forwardBalanceAuto
+        new SequentialCommandGroup(
+            this.drive.crawlUntilTilt(Constants.Auto.F_BALANCE_DRIVE_MPS),
+            this.drive.crawlUntilLevel(Constants.Auto.F_LEVEL_MPS)).schedule();
+        break;
+
+      case 6:
+        new SequentialCommandGroup(
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            this.intake.off(),
+            this.drive.resetEncodersCommand(),
+
+            this.drive.crawlDistance(0.4, Constants.Auto.DRIVE_MPS / 4.0).alongWith(
+                this.intake.holdCube().raceWith(this.arm.setRadiansAndFinish(Constants.Arm.Positions.HIGH_NODE)))
+                .withTimeout(100),
+
+            this.intake.throwItem().withTimeout(0.25),
+            this.drive.resetEncodersCommand(),
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            new WaitCommand(0.9),
+            // this.arm.setRadiansAndFinish(Constants.Arm.Positions.STOW).withTimeout(2.0),
+            this.intake.off(),
+            // new WaitCommand(0.5),
+
+            this.drive.crawlDistance(Constants.Auto.DRIVE_BACK_METERS + 0.45, -Constants.Auto.DRIVE_MPS),
+            // new WaitCommand(0.25),
+            this.drive.crawlUntilTilt(Constants.Auto.F_BALANCE_DRIVE_MPS),
+            this.drive.crawlUntilLevel(Constants.Auto.F_LEVEL_MPS)).schedule();
+        break;
+      case 7:
+        // highCubeStayAuto
+        new SequentialCommandGroup(
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            this.intake.off(),
+            this.drive.resetEncodersCommand(),
+
+            this.drive.crawlDistance(0.4, Constants.Auto.DRIVE_MPS / 4.0).alongWith(
+                this.intake.holdCube().raceWith(this.arm.setRadiansAndFinish(Constants.Arm.Positions.HIGH_NODE)))
+                .withTimeout(100),
+
+            this.intake.throwItem().withTimeout(0.25),
+            this.drive.resetEncodersCommand(),
+            this.arm.setRadians(Constants.Arm.Positions.STOW),
+            new WaitCommand(0.9),
+            // this.arm.setRadiansAndFinish(Constants.Arm.Positions.STOW).withTimeout(2.0),
+            this.intake.off()
+        // new WaitCommand(0.5),
+        ).schedule();
+        break;
+      case 99:
+        break;
     }
-    
-    
-    /**
-     * This method is called every 20 ms, no matter the mode. Use this for items like diagnostics
-     * that you want ran during disabled, autonomous, teleoperated and test.
-     *
-     * <p>This runs after the mode specific periodic methods, but before LiveWindow and
-     * SmartDashboard integrated updating.
-     */
-    @Override
-    public void robotPeriodic()
-    {
-        // Runs the Scheduler.  This is responsible for polling buttons, adding newly-scheduled
-        // commands, running already-scheduled commands, removing finished or interrupted commands,
-        // and running subsystem periodic() methods.  This must be called from the robot's periodic
-        // block in order for anything in the Command-based framework to work.
-        CommandScheduler.getInstance().run();
+  }
+
+  @Override
+  public void teleopInit() {
+    Constants.UpdateSettings();
+  }
+
+  private void addAutoChoice(String l, String t, int i, boolean d) {
+    if (d) {
+      this.autoChooser.setDefaultOption("[Auto - " + l + "] " + t + " (Default)", Integer.valueOf(i));
+    } else {
+      this.autoChooser.addOption("[Auto - " + l + "] " + t, Integer.valueOf(i));
     }
-    
-    
-    /** This method is called once each time the robot enters Disabled mode. */
-    @Override
-    public void disabledInit() {}
-    
-    
-    @Override
-    public void disabledPeriodic() {}
-    
-    
-    /** This autonomous runs the autonomous command selected by your {@link RobotContainer} class. */
-    @Override
-    public void autonomousInit()
-    {
-        autonomousCommand = robotContainer.getAutonomousCommand();
-        
-        // schedule the autonomous command (example)
-        if (autonomousCommand != null)
-        {
-            autonomousCommand.schedule();
-        }
-    }
-    
-    
-    /** This method is called periodically during autonomous. */
-    @Override
-    public void autonomousPeriodic() {}
-    
-    
-    @Override
-    public void teleopInit()
-    {
-        // This makes sure that the autonomous stops running when
-        // teleop starts running. If you want the autonomous to
-        // continue until interrupted by another command, remove
-        // this line or comment it out.
-        if (autonomousCommand != null)
-        {
-            autonomousCommand.cancel();
-        }
-    }
-    
-    
-    /** This method is called periodically during operator control. */
-    @Override
-    public void teleopPeriodic() {
-        leftMotor.set(0.5);
-    }
-    
-    
-    @Override
-    public void testInit()
-    {
-        // Cancels all running commands at the start of test mode.
-        CommandScheduler.getInstance().cancelAll();
-    }
-    
-    
-    /** This method is called periodically during test mode. */
-    @Override
-    public void testPeriodic() {}
-    
-    
-    /** This method is called once when the robot is first started up. */
-    @Override
-    public void simulationInit() {}
-    
-    
-    /** This method is called periodically whilst in simulation. */
-    @Override
-    public void simulationPeriodic() {}
+  }
+
+  private void addAutoChoice(String l, String t, int i) {
+    this.addAutoChoice(l, t, i, false);
+  }
 }
