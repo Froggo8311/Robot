@@ -19,6 +19,7 @@ import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.subsystems.Arm;
 import frc.robot.subsystems.Drivetrain;
 import frc.robot.subsystems.Intake;
+import frc.robot.subsystems.PhotonVision;
 
 import java.util.List;
 
@@ -26,6 +27,8 @@ public class Robot extends TimedRobot {
   private Arm arm;
   private Drivetrain drive;
   private Intake intake;
+
+  private PhotonVision vision;
 
   CommandXboxController xb = new CommandXboxController(Constants.Ports.CONTROLLER);
   // Joystick joyleft = new Joystick(Constants.Ports.JOYLEFT);
@@ -210,6 +213,7 @@ public class Robot extends TimedRobot {
   @Override
   public void teleopInit() {
     Constants.UpdateSettings();
+    this.vision = PhotonVision.getInstance();
   }
 
   private void addAutoChoice(String l, String t, int i, boolean d) {

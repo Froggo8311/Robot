@@ -7,6 +7,16 @@ package frc.robot;
 
 import com.ctre.phoenix.sensors.PigeonIMU;
 import edu.wpi.first.wpilibj.Preferences;
+import edu.wpi.first.apriltag.AprilTagFieldLayout;
+import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Transform2d;
+import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.DriverStation;
+
+import java.io.IOException;
+import java.util.Optional;
 
 /**
  * The Constants class provides a convenient place for teams to hold robot-wide
@@ -130,6 +140,8 @@ public final class Constants {
     public static final int CONTROLLER = 0;
     public static final int ARM_ENCODER_DIO = 9;
 
+    public static final String CAMERA = "photonvision";
+
     public static final int JOYLEFT = 1;
     public static final int JOYRIGHT = 2;
   }
@@ -164,6 +176,25 @@ public final class Constants {
       public static final double RamseteZeta = 0.7;
     }
   }
+
+  public static final class Camera {
+    //public static final double CAMERA_HEIGHT_METERS = Units.inchesToMeters(16);
+    //public static final double CAMERA_PITCH_RADS = Units.degreesToRadians(45);
+    public static final AprilTagFieldLayout field;
+    public static final Transform3d cameraToRobot = new Transform3d();
+
+    static {
+      try {
+        field = new AprilTagFieldLayout("2024-crescendo.json");
+      } catch ( IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
+  public static final double scoringRange = 120.0;
+
+
 
   static {
     Preferences.initDouble("Drivetrain.SLOW_WHEEL_TURN_GAIN", Drivetrain.SLOW_WHEEL_TURN_GAIN);
